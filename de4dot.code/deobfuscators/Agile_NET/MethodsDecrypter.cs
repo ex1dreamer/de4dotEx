@@ -562,6 +562,24 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 
 		void DecryptMethods(uint codeHeaderOffset, MDTable methodDefTable, ICsHeader csHeader, ref DumpedMethods dumpedMethods) {
 			var methodInfos = csHeader.GetMethodInfos(codeHeaderOffset);
+			int logged = Math.Min(methodInfos.Count, 12);
+			for (int i = 0; i < logged; i++) {
+				var info = methodInfos[i];
+				ulong end = (ulong)info.codeOffs + info.codeSize;
+				string rangeStatus = info.codeOffs == 0 ? "absent" : end <= codeHeader.totalCodeSize ? "within declared region" : "OUTSIDE declared region";
+				Logger.n($"Agile.NET V52 index: RID {i + 1}, offset=0x{info.codeOffs:X8}, size={info.codeSize}, end=0x{end:X8}, {rangeStatus}");
+			}
+			int present = 0;
+			int outside = 0;
+			for (int i = 0; i < methodInfos.Count; i++) {
+				var info = methodInfos[i];
+				if (info.codeOffs == 0)
+					continue;
+				present++;
+				if ((ulong)info.codeOffs + info.codeSize > codeHeader.totalCodeSize)
+					outside++;
+			}
+			Logger.n($"Agile.NET V52 index: present={present}, absent={methodInfos.Count - present}, outside declared region={outside}");
 			csHeader.PatchMethodTable(methodDefTable, methodInfos);
 
 			dumpedMethods = new DumpedMethods();
