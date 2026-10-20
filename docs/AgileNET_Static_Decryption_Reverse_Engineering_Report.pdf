@@ -1,0 +1,168 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+3 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R 9 0 R 11 0 R] /Count 4 >>
+endobj
+4 0 obj
+<< /Length 2699 >>
+stream
+BT /F2 19 Tf 48 786 Td (Agile.NET Static Method Decryption) Tj ET
+BT /F1 9 Tf 48 761 Td (Reverse-engineering case study | de4dotEx | AgileNetMode | October 2026) Tj ET
+BT /F2 11 Tf 48 720 Td (EXECUTIVE SUMMARY) Tj ET
+BT /F1 9 Tf 48 696 Td (The investigation recovered the static managed method bodies of Agile.NET-protected) Tj ET
+BT /F1 9 Tf 48 681 Td (NinjaTrader.Core.dll \(x64\). The original Decrypter5 transformation failed on RID 4. A sequence of) Tj ET
+BT /F1 9 Tf 48 666 Td (controlled diagnostics reconstructed a 16-byte cyclic XOR keystream from redundant V52 metadata.) Tj ET
+BT /F1 9 Tf 48 651 Td (Every one of 10,328 nonempty indexed records subsequently passed MethodBodyParser's structural) Tj ET
+BT /F1 9 Tf 48 636 Td (checks.) Tj ET
+BT /F1 9 Tf 48 613 Td (The user independently observed approximately 80-90% of the assembly as readable decompiled C#.) Tj ET
+BT /F1 9 Tf 48 598 Td (The final implementation derives the keystream at runtime instead of hardcoding assembly-specific) Tj ET
+BT /F1 9 Tf 48 583 Td (bytes. Existing dynamic fallback is retained.) Tj ET
+BT /F2 11 Tf 48 552 Td (SCOPE AND PROTECTION ARCHITECTURE) Tj ET
+BT /F1 9 Tf 48 528 Td (Target: NinjaTrader.Core.dll, managed .NET x64 assembly.) Tj ET
+BT /F1 9 Tf 48 505 Td (Static protection: Agile.NET encrypted ordinary managed method bodies.) Tj ET
+BT /F1 9 Tf 48 482 Td (Separate virtualization: approximately 38 VM methods and 855 handlers in _CSVM.) Tj ET
+BT /F1 9 Tf 48 459 Td (Native runtime: AgileDotNetRT64.dll, protected by Themida.) Tj ET
+BT /F1 9 Tf 48 436 Td (Decision: focus on ordinary static method decryption, not VM devirtualization or Themida) Tj ET
+BT /F1 9 Tf 48 421 Td (unpacking.) Tj ET
+BT /F2 11 Tf 48 390 Td (1. ORIGINAL FAILURE AND V52 HEADER VALIDATION) Tj ET
+BT /F1 9 Tf 48 366 Td (Header signature Normal; file offset 0x00340880; encrypted-code region size 0x0027BDD8.) Tj ET
+BT /F1 9 Tf 48 343 Td (MethodDef count 24,881; stored and actual MethodDef offset both 0x0004AA30; row size 18 bytes.) Tj ET
+BT /F1 9 Tf 48 320 Td (V52 index offset 0x005BC688; entry size 16 bytes; total index 398,096 bytes.) Tj ET
+BT /F1 9 Tf 48 297 Td (Index: 10,328 nonempty records, 14,553 absent; zero records outside the declared region.) Tj ET
+BT /F1 9 Tf 48 274 Td (RID 4: code offset 0x40, size 24, absolute file offset 0x003408C0. Legacy Decrypter5 produced) Tj ET
+BT /F1 9 Tf 48 259 Td (first byte 0xAF, which cannot identify a valid tiny or fat CIL method header. InvalidMethodBody) Tj ET
+BT /F1 9 Tf 48 244 Td (aborted static decryption and triggered x64-incompatible dynamic fallback.) Tj ET
+BT /F1 8 Tf 48 29 Td (de4dotEx - AgileNetMode | Technical reverse-engineering report | Page 1 of 4) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 3 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 4 0 R >>
+endobj
+6 0 obj
+<< /Length 2638 >>
+stream
+BT /F2 19 Tf 48 786 Td (2. DIAGNOSTIC EXPERIMENTS) Tj ET
+BT /F1 9 Tf 48 761 Td (A bounded, independent 512-record test was added so RID 4 would no longer prevent observing other encrypted methods.) Tj ET
+BT /F1 9 Tf 48 728 Td (Initial results: 143 structural parser successes, all tiny headers; zero valid fat headers. 90) Tj ET
+BT /F1 9 Tf 48 713 Td (fat-header-size failures, 230 invalid discriminators, and 49 tiny-size overruns.) Tj ET
+BT /F1 9 Tf 48 690 Td (Fat headers repeatedly produced transformed 0xDD33 instead of expected flags 0x3013. Local) Tj ET
+BT /F1 9 Tf 48 675 Td (signature differences likewise showed stable XOR relationships.) Tj ET
+BT /F1 9 Tf 48 652 Td (Across 512 nonzero-flag records, observed mask differences fell into four groups rather than) Tj ET
+BT /F1 9 Tf 48 637 Td (appearing random. This was consistent with a position-dependent periodic keystream.) Tj ET
+BT /F1 9 Tf 48 614 Td (Four alternative transforms were checked: raw, first XOR only, second XOR only, and legacy double) Tj ET
+BT /F1 9 Tf 48 599 Td (XOR. None reconstructed valid fat headers or matched method metadata. Apparent tiny-header) Tj ET
+BT /F1 9 Tf 48 584 Td (successes were not sufficient evidence of real CIL recovery.) Tj ET
+BT /F2 11 Tf 48 553 Td (3. RECOVERED 16-BYTE KEYSTREAM) Tj ET
+BT /F1 9 Tf 48 529 Td (Candidate cyclic keystream \(phase relative to encrypted code region\):) Tj ET
+BT /F1 9 Tf 48 506 Td (B4 BE 32 8D 00 81 E3 4D C4 59 4A 9E BC F7 7C E4) Tj ET
+BT /F1 9 Tf 48 483 Td (plaintext[j] = ciphertext[j] XOR mask[\(methodInfo.codeOffs + j\) & 15]) Tj ET
+BT /F1 9 Tf 48 460 Td (The mask was recovered from two known fat-header fields duplicated in cleartext V52 index) Tj ET
+BT /F1 9 Tf 48 445 Td (metadata: method flags at header bytes 0-1 and local signature at bytes 8-11.) Tj ET
+BT /F1 9 Tf 48 422 Td (RID 5 encrypted prefix: D7 69 49 9E FD F7 7C E4 B5 BE 32 9C) Tj ET
+BT /F1 9 Tf 48 399 Td (RID 5 recovered prefix: 13 30 03 00 41 00 00 00 01 00 00 11) Tj ET
+BT /F1 9 Tf 48 376 Td (Decoded RID 5 fat header: flags 0x3013; maxStack 3; IL code size 65; local signature 0x11000001.) Tj ET
+BT /F1 9 Tf 48 361 Td (Its flags and signature match the V52 index exactly.) Tj ET
+BT /F1 9 Tf 48 338 Td (The four repeating mask classes result from different record start offsets modulo the 16-byte) Tj ET
+BT /F1 9 Tf 48 323 Td (period. This proves a consistent alignment rule for this assembly but does not independently) Tj ET
+BT /F1 9 Tf 48 308 Td (prove the native runtime's original key-generation mechanism.) Tj ET
+BT /F1 8 Tf 48 29 Td (de4dotEx - AgileNetMode | Technical reverse-engineering report | Page 2 of 4) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 3 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 6 0 R >>
+endobj
+8 0 obj
+<< /Length 2364 >>
+stream
+BT /F2 19 Tf 48 786 Td (4. FULL CANDIDATE-KEY VALIDATION) Tj ET
+BT /F1 9 Tf 48 761 Td (All 10,328 nonempty method records were tested independently after applying the recovered cyclic mask.) Tj ET
+BT /F1 9 Tf 48 728 Td (MethodBodyParser successes: 10,328 / 10,328 \(100%\).) Tj ET
+BT /F1 9 Tf 48 705 Td (Tiny structures: 4,874.) Tj ET
+BT /F1 9 Tf 48 682 Td (Fat structures without additional sections: 3,971.) Tj ET
+BT /F1 9 Tf 48 659 Td (Fat structures with additional sections: 1,483.) Tj ET
+BT /F1 9 Tf 48 636 Td (Fat-header flags matching index: 5,454 / 5,454.) Tj ET
+BT /F1 9 Tf 48 613 Td (Fat-header local signatures matching index: 5,454 / 5,454.) Tj ET
+BT /F1 9 Tf 48 590 Td (Invalid structural headers: 0. Read errors: 0.) Tj ET
+BT /F1 9 Tf 48 567 Td (These results provide very strong evidence of correct method-body structure recovery.) Tj ET
+BT /F1 9 Tf 48 552 Td (MethodBodyParser does not validate every IL opcode, branch target, exception-handler semantic) Tj ET
+BT /F1 9 Tf 48 537 Td (constraint, or runtime dependency.) Tj ET
+BT /F2 11 Tf 48 506 Td (5. FINAL IMPLEMENTATION) Tj ET
+BT /F1 9 Tf 48 482 Td (Modified file: de4dot.code/deobfuscators/Agile_NET/MethodsDecrypter.cs.) Tj ET
+BT /F1 9 Tf 48 459 Td (V52 processing derives every keystream byte using encrypted fat headers and corresponding) Tj ET
+BT /F1 9 Tf 48 444 Td (metadata index flags and local signatures. Key material is aligned to \(methodInfo.codeOffs + byte) Tj ET
+BT /F1 9 Tf 48 429 Td (index\) modulo 16.) Tj ET
+BT /F1 9 Tf 48 406 Td (Any conflicting or missing keystream phase rejects the inferred key. All nonempty records must) Tj ET
+BT /F1 9 Tf 48 391 Td (pass structural parsing and fat-header metadata comparison before selecting the inferred-key) Tj ET
+BT /F1 9 Tf 48 376 Td (Decrypter5 implementation.) Tj ET
+BT /F1 9 Tf 48 353 Td (If inference or verification fails, the original decryption implementation and dynamic fallback) Tj ET
+BT /F1 9 Tf 48 338 Td (remain available.) Tj ET
+BT /F1 9 Tf 48 315 Td (The known candidate keystream is NOT hardcoded in the production decryption path. Diagnostic) Tj ET
+BT /F1 9 Tf 48 300 Td (instrumentation remains in the branch and may later be placed behind a verbose diagnostics) Tj ET
+BT /F1 9 Tf 48 285 Td (option.) Tj ET
+BT /F1 8 Tf 48 29 Td (de4dotEx - AgileNetMode | Technical reverse-engineering report | Page 3 of 4) Tj ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 3 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 8 0 R >>
+endobj
+10 0 obj
+<< /Length 2451 >>
+stream
+BT /F2 19 Tf 48 786 Td (6. SELECTED GITHUB MILESTONES) Tj ET
+BT /F1 9 Tf 48 761 Td (c98dbb5 / 33bb917 / 3fb8fbe - Log static decryption failures, RIDs, byte prefixes.) Tj ET
+BT /F1 9 Tf 48 728 Td (653a5d9 / 3cd6848 - Validate V52 header/index offsets and record bounds.) Tj ET
+BT /F1 9 Tf 48 705 Td (6be1d82 / 2aa8adc - Independent sample and categorized parser failures.) Tj ET
+BT /F1 9 Tf 48 682 Td (12ab924 / d8f7a018 - Cross-record XOR-mask diagnostics.) Tj ET
+BT /F1 9 Tf 48 659 Td (5bb2529 - Compare raw, key0, key7, and double-XOR variants.) Tj ET
+BT /F1 9 Tf 48 636 Td (af6fc03 - Full candidate key test, 10,328 / 10,328 structural success.) Tj ET
+BT /F1 9 Tf 48 613 Td (d7ef2cb8 - Infer, verify and use recovered V52 keystream in Decrypter5.) Tj ET
+BT /F1 9 Tf 48 590 Td (Repository: https://github.com/ex1dreamer/de4dotEx) Tj ET
+BT /F1 9 Tf 48 567 Td (Branch: AgileNetMode. Production checkpoint: d7ef2cb82aa1dc02dd02bbe797877b37355fb917.) Tj ET
+BT /F2 11 Tf 48 536 Td (7. OUTCOMES, LIMITATIONS, NEXT STEPS) Tj ET
+BT /F1 9 Tf 48 512 Td (Confirmed: V52 index consistency, 100% method-body structural parsing of nonempty records,) Tj ET
+BT /F1 9 Tf 48 497 Td (5,454/5,454 fat-header metadata matches, and user-reported 80-90% source readability.) Tj ET
+BT /F1 9 Tf 48 474 Td (Not established: verified IL instruction semantics for every method, successful) Tj ET
+BT /F1 9 Tf 48 459 Td (rebuilding/loading of the whole assembly, devirtualization of VM-protected methods, or full) Tj ET
+BT /F1 9 Tf 48 444 Td (native key-generation algorithm.) Tj ET
+BT /F1 9 Tf 48 421 Td (Next: checkpoint working branch, validate IL opcode streams and exception handlers, smoke-test) Tj ET
+BT /F1 9 Tf 48 406 Td (decompilation and assembly behavior, then gate diagnostic logging.) Tj ET
+BT /F1 9 Tf 48 383 Td (Engineering insight: leveraging redundancy between encrypted method bodies and cleartext metadata) Tj ET
+BT /F1 9 Tf 48 368 Td (avoided costly unpacking of the Themida-protected native runtime.) Tj ET
+BT /F2 11 Tf 48 337 Td (EVIDENCE BASIS) Tj ET
+BT /F1 9 Tf 48 313 Td (Prepared from the project handoff, the logged experiments and GitHub commits, and user) Tj ET
+BT /F1 9 Tf 48 298 Td (confirmation of source availability. No new independent execution of NinjaTrader.Core.dll was) Tj ET
+BT /F1 9 Tf 48 283 Td (performed for this report.) Tj ET
+BT /F1 8 Tf 48 29 Td (de4dotEx - AgileNetMode | Technical reverse-engineering report | Page 4 of 4) Tj ET
+endstream
+endobj
+11 0 obj
+<< /Type /Page /Parent 3 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 10 0 R >>
+endobj
+12 0 obj
+<< /Type /Catalog /Pages 3 0 R >>
+endobj
+xref
+0 13
+0000000000 65535 f 
+0000000009 00000 n 
+0000000079 00000 n 
+0000000154 00000 n 
+0000000230 00000 n 
+0000002981 00000 n 
+0000003117 00000 n 
+0000005807 00000 n 
+0000005943 00000 n 
+0000008359 00000 n 
+0000008495 00000 n 
+0000010999 00000 n 
+0000011137 00000 n 
+trailer
+<< /Size 13 /Root 12 0 R >>
+startxref
+11187
+%%EOF
