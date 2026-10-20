@@ -678,7 +678,6 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 			int sampled = Math.Min(maxSamples, candidates.Count);
 			int errors = 0;
 			int examples = 0;
-			uint endOfMetadata = GetCodeHeaderOffset(peImage);
 			var diagnosticDecrypter = new Decrypter5(peImage, codeHeader, 0x30);
 			for (int i = 0; i < sampled; i++) {
 				int index = candidates[(int)((long)i * candidates.Count / sampled)];
@@ -720,7 +719,7 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 			var entries = new List<KeyValuePair<T, int>>(counts);
 			entries.Sort((a, b) => b.Value.CompareTo(a.Value));
 			for (int i = 0; i < Math.Min(6, entries.Count); i++)
-				Logger.n($"Agile.NET V52 mask diagnostic: {name} mask={entries[i].Key}, count={entries[i].Value}");
+				Logger.n($"Agile.NET V52 mask diagnostic: {name} mask=0x{Convert.ToUInt64(entries[i].Key):X8}, count={entries[i].Value}");
 		}
 
 		// Diagnostic only: does not modify the method table, dump methods, or fallback behavior.
