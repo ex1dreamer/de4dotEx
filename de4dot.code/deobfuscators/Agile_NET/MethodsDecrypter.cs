@@ -498,6 +498,11 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 				return DecryptResult.NotEncrypted;
 
 			var methodDefTable = peImage.Metadata.TablesStream.MethodTable;
+			uint metadataOffset = peImage.RvaToOffset((uint)peImage.Cor20Header.Metadata.VirtualAddress);
+			uint actualMethodDefOffset = (uint)methodDefTable.StartOffset - metadataOffset;
+			Logger.n($"Agile.NET header: signature={sigType}, offset=0x{codeHeaderOffset:X8}, codeSize=0x{codeHeader.totalCodeSize:X8}, methodCount={codeHeader.numMethods}");
+			Logger.n($"Agile.NET header: stored MethodDef offset=0x{codeHeader.methodDefTableOffset:X8}, rowSize={codeHeader.methodDefElemSize}; actual offset=0x{actualMethodDefOffset:X8}, rowSize={methodDefTable.RowSize}, rows={methodDefTable.Rows}");
+			Logger.n($"Agile.NET header: calculated V52 table offset=0x{(codeHeaderOffset + codeHeader.totalCodeSize + 0x30u):X8}, V52 index size={(ulong)codeHeader.numMethods * 16} bytes");
 
 			foreach (var version in GetCsHeaderVersions(codeHeaderOffset, methodDefTable)) {
 				try {
