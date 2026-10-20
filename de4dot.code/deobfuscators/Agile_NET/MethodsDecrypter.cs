@@ -627,6 +627,35 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 			}
 		}
 
+		// Mirror the structural checks in MethodBodyParser without changing its behavior.
+		static string ExplainMethodBodyHeader(byte[] data, out uint declaredSize, out uint localSig, out ushort headerFlags) {
+			declaredSize = 0;
+			localSig = 0;
+			headerFlags = 0;
+			if (data.Length == 0)
+				return "empty";
+			if ((data[0] & 3) == 2) {
+				declaredSize = (uint)(data[0] >> 2);
+				return 1UL + declaredSize > (ulong)data.Length ? "tiny-size-overrun" : "tiny-structure-ok";
+			}
+			if ((data[0] & 7) != 3)
+				return "invalid-discriminator";
+			if (data.Length < 12)
+				return "fat-truncated-header";
+			headerFlags = BitConverter.ToUInt16(data, 0);
+			declaredSize = BitConverter.ToUInt32(data, 4);
+			localSig = BitConverter.ToUInt32(data, 8);
+			if ((headerFlags >> 12) != 3)
+				return "fat-header-size";
+			if (declaredSize > int.MaxValue)
+				return "fat-code-size-overflow";
+			if (localSig != 0 && (localSig >> 24) != 0x11)
+				return "fat-local-sig";
+			if (12UL + declaredSize > (ulong)data.Length)
+				return "fat-code-overrun";
+			return (headerFlags & 8) != 0 ? "fat-extra-sections" : "fat-structure-ok";
+		}
+
 		// Diagnostic only: does not modify the method table, dump methods, or fallback behavior.
 		void DiagnoseV52Methods(IList<MethodInfo> methodInfos) {
 			const int maxSamples = 512;
@@ -648,6 +677,9 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 			int[] parseFailedByFlag = new int[2];
 			int[] readFailedByFlag = new int[2];
 			int failuresLogged = 0;
+			int successesLogged = 0;
+			var reasons = new SortedDictionary<string, int>();
+			int tinyParseOK = 0, fatParseOK = 0, matchingFatLocalSigs = 0, differingFatLocalSigs = 0;
 			var diagnosticDecrypter = new Decrypter5(peImage, codeHeader, 0x30);
 			Logger.n($"Agile.NET V52 decrypt diagnostic: sampling {samples} of {nonempty.Count} nonempty records (first 16 plus evenly spaced remainder)");
 			for (int sample = 0; sample < samples; sample++) {
@@ -659,12 +691,20 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 				string headerKind = "unreadable";
 				string parseResult = "not attempted";
 				string firstByte = "--";
+				string structuralReason = "unreadable";
+				uint declaredSize = 0, decodedLocalSig = 0;
+				ushort decodedFlags = 0;
 				try {
 					if (info.codeSize == 0 || (ulong)info.codeOffs + info.codeSize > codeHeader.totalCodeSize)
 						throw new InvalidDataException("Record size/range invalid");
 					uint fileOffset;
 					byte[] data = diagnosticDecrypter.GetDecryptedBytes(info, out fileOffset);
 					firstByte = data[0].ToString("X2");
+					structuralReason = ExplainMethodBodyHeader(data, out declaredSize, out decodedLocalSig, out decodedFlags);
+					if (structuralReason == "fat-structure-ok" || structuralReason == "fat-extra-sections") {
+						if (decodedLocalSig == info.localVarSigTok) matchingFatLocalSigs++;
+						else differingFatLocalSigs++;
+					}
 					if ((data[0] & 3) == 2) {
 						headerKind = "tiny";
 						tinyByFlag[group]++;
@@ -683,6 +723,8 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 						if (valid) {
 							parseOkByFlag[group]++;
 							parseResult = "ok";
+							if (headerKind == "tiny") tinyParseOK++;
+							else fatParseOK++;
 						}
 						else {
 							parseFailedByFlag[group]++;
@@ -694,11 +736,18 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 					readFailedByFlag[group]++;
 					parseResult = ex.GetType().Name;
 				}
-				if (parseResult != "ok" && failuresLogged++ < maxFailureLogs)
-					Logger.n($"Agile.NET V52 decrypt diagnostic: RID {index + 1}, offset=0x{info.codeOffs:X8}, size={info.codeSize}, flags=0x{info.flags:X8}, localSig=0x{info.localVarSigTok:X8}, first=0x{firstByte}, header={headerKind}, parse={parseResult}");
+				string category = structuralReason + "/" + parseResult;
+				if (!reasons.ContainsKey(category)) reasons[category] = 0;
+				reasons[category]++;
+				if ((parseResult != "ok" && failuresLogged++ < maxFailureLogs) ||
+					(parseResult == "ok" && successesLogged++ < 8))
+					Logger.n($"Agile.NET V52 decrypt diagnostic: RID {index + 1}, offset=0x{info.codeOffs:X8}, size={info.codeSize}, flags=0x{info.flags:X8}, indexSig=0x{info.localVarSigTok:X8}, first=0x{firstByte}, header={headerKind}, decodedFlags=0x{decodedFlags:X4}, decodedSize={declaredSize}, decodedSig=0x{decodedLocalSig:X8}, reason={structuralReason}, parse={parseResult}");
 			}
 			for (int group = 0; group < 2; group++)
 				Logger.n($"Agile.NET V52 decrypt diagnostic: flags {(group == 0 ? "zero" : "nonzero")}: tested={testedByFlag[group]}, tiny={tinyByFlag[group]}, fat={fatByFlag[group]}, invalid={invalidByFlag[group]}, parseOK={parseOkByFlag[group]}, parseFailed={parseFailedByFlag[group]}, readFailed={readFailedByFlag[group]}");
+			Logger.n($"Agile.NET V52 decrypt diagnostic: parseOK tiny={tinyParseOK}, fat={fatParseOK}; structurally valid fat local signatures matching index={matchingFatLocalSigs}, differing={differingFatLocalSigs}");
+			foreach (var reason in reasons)
+				Logger.n($"Agile.NET V52 decrypt diagnostic: outcome {reason.Key}: {reason.Value}");
 		}
 
 		void ReadCodeHeader(uint offset) {
