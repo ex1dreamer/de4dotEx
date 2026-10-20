@@ -487,13 +487,16 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 
 			foreach (var version in GetCsHeaderVersions(codeHeaderOffset, methodDefTable)) {
 				try {
+					Logger.n($"Agile.NET static decryption: trying {version} (header offset 0x{codeHeaderOffset:X8}, methods {codeHeader.numMethods})");
 					if (version == CsHeaderVersion.V10)
 						DecryptMethodsOld(methodDefTable, ref dumpedMethods);
 					else
 						DecryptMethods(codeHeaderOffset, methodDefTable, CreateCsHeader(version), ref dumpedMethods);
+					Logger.n($"Agile.NET static decryption: {version} succeeded");
 					return DecryptResult.Decrypted;
 				}
-				catch {
+				catch (Exception ex) {
+					Logger.n($"Agile.NET static decryption: {version} failed: {ex}");
 				}
 			}
 
