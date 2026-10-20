@@ -143,10 +143,6 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 			public override MethodBodyHeader Decrypt(MethodInfo methodInfo, out byte[] code, out byte[] extraSections) {
 				var data = peImage.OffsetReadBytes(endOfMetadata + methodInfo.codeOffs, (int)methodInfo.codeSize);
 				for (int i = 0; i < data.Length; i++) {
-					if (v52RecoveredKey != null) {
-						data[i] ^= v52RecoveredKey[(int)((methodInfo.codeOffs + (uint)i) & 15)];
-						continue;
-					}
 					byte b = data[i];
 					b ^= codeHeader.decryptionKey[(methodInfo.codeOffs - 0x28 + i) % 16];
 					data[i] = b;
