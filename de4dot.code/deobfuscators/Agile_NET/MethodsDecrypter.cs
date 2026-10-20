@@ -166,6 +166,10 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 				fileOffset = endOfMetadata + methodInfo.codeOffs;
 				byte[] data = peImage.OffsetReadBytes(fileOffset, (int)methodInfo.codeSize);
 				for (int i = 0; i < data.Length; i++) {
+					if (v52RecoveredKey != null) {
+						data[i] ^= v52RecoveredKey[(int)((methodInfo.codeOffs + (uint)i) & 15)];
+						continue;
+					}
 					byte b = data[i];
 					b ^= codeHeader.decryptionKey[(methodInfo.codeOffs - codeHeaderSize + i) % 16];
 					b ^= codeHeader.decryptionKey[(methodInfo.codeOffs - codeHeaderSize + i + 7) % 16];
