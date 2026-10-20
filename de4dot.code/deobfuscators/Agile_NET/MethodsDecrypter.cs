@@ -158,18 +158,36 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 			public Decrypter5(MyPEImage peImage, CodeHeader codeHeader, uint codeHeaderSize)
 				: base(peImage, codeHeader) => this.codeHeaderSize = codeHeaderSize;
 
-			public override MethodBodyHeader Decrypt(MethodInfo methodInfo, out byte[] code, out byte[] extraSections) {
-				uint fileOffset = endOfMetadata + methodInfo.codeOffs;
+			public byte[] GetDecryptedBytes(MethodInfo methodInfo, out uint fileOffset) {
+				fileOffset = endOfMetadata + methodInfo.codeOffs;
 				byte[] data = peImage.OffsetReadBytes(fileOffset, (int)methodInfo.codeSize);
-				byte[] prefixBefore = new byte[Math.Min(data.Length, 16)];
-				Array.Copy(data, prefixBefore, prefixBefore.Length);
 				for (int i = 0; i < data.Length; i++) {
 					byte b = data[i];
 					b ^= codeHeader.decryptionKey[(methodInfo.codeOffs - codeHeaderSize + i) % 16];
 					b ^= codeHeader.decryptionKey[(methodInfo.codeOffs - codeHeaderSize + i + 7) % 16];
 					data[i] = b;
 				}
+				return data;
+			}
+
+			public bool TryParseDiagnostic(byte[] data, out string error) {
 				try {
+					byte[] code, extraSections;
+					GetCodeBytes(data, out code, out extraSections);
+					error = null;
+					return true;
+				}
+				catch (Exception ex) {
+					error = ex.GetType().Name;
+					return false;
+				}
+			}
+
+			public override MethodBodyHeader Decrypt(MethodInfo methodInfo, out byte[] code, out byte[] extraSections) {
+				uint fileOffset;
+				byte[] data = GetDecryptedBytes(methodInfo, out fileOffset);
+				byte[] prefixBefore = peImage.OffsetReadBytes(fileOffset, Math.Min(data.Length, 16));
+			try {
 					return GetCodeBytes(data, out code, out extraSections);
 				}
 				catch (InvalidMethodBody) {
@@ -580,6 +598,8 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 					outside++;
 			}
 			Logger.n($"Agile.NET V52 index: present={present}, absent={methodInfos.Count - present}, outside declared region={outside}");
+			if (csHeader is CsHeader5 && sigType == SigType.Normal && codeHeader.methodDefElemSize == methodDefTable.RowSize)
+				DiagnoseV52Methods(methodInfos);
 			csHeader.PatchMethodTable(methodDefTable, methodInfos);
 
 			dumpedMethods = new DumpedMethods();
@@ -605,6 +625,80 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 
 				dumpedMethods.Add(dm);
 			}
+		}
+
+		// Diagnostic only: does not modify the method table, dump methods, or fallback behavior.
+		void DiagnoseV52Methods(IList<MethodInfo> methodInfos) {
+			const int maxSamples = 512;
+			const int maxFailureLogs = 16;
+			var nonempty = new List<int>();
+			for (int i = 0; i < methodInfos.Count; i++) {
+				if (methodInfos[i].codeOffs != 0)
+					nonempty.Add(i);
+			}
+			if (nonempty.Count == 0)
+				return;
+
+			int samples = Math.Min(maxSamples, nonempty.Count);
+			int[] testedByFlag = new int[2];
+			int[] tinyByFlag = new int[2];
+			int[] fatByFlag = new int[2];
+			int[] invalidByFlag = new int[2];
+			int[] parseOkByFlag = new int[2];
+			int[] parseFailedByFlag = new int[2];
+			int[] readFailedByFlag = new int[2];
+			int failuresLogged = 0;
+			var diagnosticDecrypter = new Decrypter5(peImage, codeHeader, 0x30);
+			Logger.n($"Agile.NET V52 decrypt diagnostic: sampling {samples} of {nonempty.Count} nonempty records (first 16 plus evenly spaced remainder)");
+			for (int sample = 0; sample < samples; sample++) {
+				int position = sample < 16 ? sample : 16 + (int)((long)(sample - 16) * (nonempty.Count - 16) / Math.Max(1, samples - 16));
+				int index = nonempty[position];
+				MethodInfo info = methodInfos[index];
+				int group = info.flags == 0 ? 0 : 1;
+				testedByFlag[group]++;
+				string headerKind = "unreadable";
+				string parseResult = "not attempted";
+				string firstByte = "--";
+				try {
+					if (info.codeSize == 0 || (ulong)info.codeOffs + info.codeSize > codeHeader.totalCodeSize)
+						throw new InvalidDataException("Record size/range invalid");
+					uint fileOffset;
+					byte[] data = diagnosticDecrypter.GetDecryptedBytes(info, out fileOffset);
+					firstByte = data[0].ToString("X2");
+					if ((data[0] & 3) == 2) {
+						headerKind = "tiny";
+						tinyByFlag[group]++;
+					}
+					else if ((data[0] & 7) == 3) {
+						headerKind = "fat";
+						fatByFlag[group]++;
+					}
+					else {
+						headerKind = "invalid";
+						invalidByFlag[group]++;
+					}
+					if (headerKind != "invalid") {
+						string error;
+						bool valid = diagnosticDecrypter.TryParseDiagnostic(data, out error);
+						if (valid) {
+							parseOkByFlag[group]++;
+							parseResult = "ok";
+						}
+						else {
+							parseFailedByFlag[group]++;
+							parseResult = error;
+						}
+					}
+				}
+				catch (Exception ex) {
+					readFailedByFlag[group]++;
+					parseResult = ex.GetType().Name;
+				}
+				if (parseResult != "ok" && failuresLogged++ < maxFailureLogs)
+					Logger.n($"Agile.NET V52 decrypt diagnostic: RID {index + 1}, offset=0x{info.codeOffs:X8}, size={info.codeSize}, flags=0x{info.flags:X8}, localSig=0x{info.localVarSigTok:X8}, first=0x{firstByte}, header={headerKind}, parse={parseResult}");
+			}
+			for (int group = 0; group < 2; group++)
+				Logger.n($"Agile.NET V52 decrypt diagnostic: flags {(group == 0 ? "zero" : "nonzero")}: tested={testedByFlag[group]}, tiny={tinyByFlag[group]}, fat={fatByFlag[group]}, invalid={invalidByFlag[group]}, parseOK={parseOkByFlag[group]}, parseFailed={parseFailedByFlag[group]}, readFailed={readFailedByFlag[group]}");
 		}
 
 		void ReadCodeHeader(uint offset) {
