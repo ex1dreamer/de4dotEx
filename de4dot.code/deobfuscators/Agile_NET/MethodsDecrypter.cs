@@ -143,6 +143,10 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 			public override MethodBodyHeader Decrypt(MethodInfo methodInfo, out byte[] code, out byte[] extraSections) {
 				var data = peImage.OffsetReadBytes(endOfMetadata + methodInfo.codeOffs, (int)methodInfo.codeSize);
 				for (int i = 0; i < data.Length; i++) {
+					if (v52RecoveredKey != null) {
+						data[i] ^= v52RecoveredKey[(int)((methodInfo.codeOffs + (uint)i) & 15)];
+						continue;
+					}
 					byte b = data[i];
 					b ^= codeHeader.decryptionKey[(methodInfo.codeOffs - 0x28 + i) % 16];
 					data[i] = b;
@@ -154,9 +158,13 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 		// CS 5.0+
 		class Decrypter5 : DecrypterBase {
 			readonly uint codeHeaderSize;
+			readonly byte[] v52RecoveredKey;
 
 			public Decrypter5(MyPEImage peImage, CodeHeader codeHeader, uint codeHeaderSize)
 				: base(peImage, codeHeader) => this.codeHeaderSize = codeHeaderSize;
+
+			public Decrypter5(MyPEImage peImage, CodeHeader codeHeader, uint codeHeaderSize, byte[] recoveredKey)
+				: this(peImage, codeHeader, codeHeaderSize) => v52RecoveredKey = recoveredKey;
 
 			public byte[] GetDecryptedBytes(MethodInfo methodInfo, out uint fileOffset) {
 				fileOffset = endOfMetadata + methodInfo.codeOffs;
@@ -608,6 +616,13 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 
 			dumpedMethods = new DumpedMethods();
 			decrypter = csHeader.CreateDecrypter();
+			if (csHeader is CsHeader5 && sigType == SigType.Normal && codeHeader.methodDefElemSize == methodDefTable.RowSize) {
+				byte[] inferredKey = DeriveV52Key(methodInfos);
+				if (inferredKey != null && VerifyV52Key(methodInfos, inferredKey)) {
+					decrypter = new Decrypter5(peImage, codeHeader, 0x30, inferredKey);
+					Logger.n("Agile.NET V52 static decryption: using verified inferred XOR key");
+				}
+			}
 			for (uint rid = 1; rid <= (uint)methodInfos.Count; rid++) {
 				var methodInfo = methodInfos[(int)rid - 1];
 				if (methodInfo.codeOffs == 0)
@@ -629,6 +644,73 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 
 				dumpedMethods.Add(dm);
 			}
+		}
+
+		// Infer a cyclic keystream from V52's redundant fat-header metadata.
+		// Reject conflicting or incomplete keys; never use assembly-specific constants.
+		byte[] DeriveV52Key(IList<MethodInfo> infos) {
+			var key = new byte[16];
+			var known = new bool[16];
+			uint baseOffset = GetCodeHeaderOffset(peImage);
+			int observations = 0;
+			for (int i = 0; i < infos.Count; i++) {
+				MethodInfo info = infos[i];
+				if (info.codeOffs == 0 || info.flags == 0 || info.codeSize < 12 ||
+					(ulong)info.codeOffs + info.codeSize > codeHeader.totalCodeSize)
+					continue;
+				byte[] raw = peImage.OffsetReadBytes(baseOffset + info.codeOffs, 12);
+				byte[] expected = new byte[12];
+				expected[0] = (byte)info.flags;
+				expected[1] = (byte)(info.flags >> 8);
+				for (int j = 0; j < 4; j++)
+					expected[8 + j] = (byte)(info.localVarSigTok >> (8 * j));
+				for (int j = 0; j < 12; j++) {
+					if (j >= 2 && j < 8) continue;
+					int phase = (int)((info.codeOffs + (uint)j) & 15);
+					byte mask = (byte)(raw[j] ^ expected[j]);
+					if (known[phase] && key[phase] != mask) {
+						Logger.n($"Agile.NET V52 key inference: conflicting mask at phase {phase}");
+						return null;
+					}
+					known[phase] = true;
+					key[phase] = mask;
+					observations++;
+				}
+			}
+			for (int i = 0; i < known.Length; i++)
+				if (!known[i]) {
+					Logger.n($"Agile.NET V52 key inference: missing phase {i}");
+					return null;
+				}
+			Logger.n($"Agile.NET V52 key inference: all 16 phases recovered, observations={observations}");
+			return key;
+		}
+
+		bool VerifyV52Key(IList<MethodInfo> infos, byte[] key) {
+			var parser = new Decrypter5(peImage, codeHeader, 0x30, key);
+			int verified = 0;
+			foreach (MethodInfo info in infos) {
+				if (info.codeOffs == 0) continue;
+				if (info.codeSize == 0 || info.codeSize > int.MaxValue ||
+					(ulong)info.codeOffs + info.codeSize > codeHeader.totalCodeSize) return false;
+				try {
+					uint fileOffset;
+					byte[] data = parser.GetDecryptedBytes(info, out fileOffset);
+					uint size, sig;
+					ushort flags;
+					string reason = ExplainMethodBodyHeader(data, out size, out sig, out flags);
+					if (reason != "tiny-structure-ok" && reason != "fat-structure-ok" && reason != "fat-extra-sections")
+						return false;
+					if ((data[0] & 7) == 3 && (flags != (ushort)info.flags || sig != info.localVarSigTok))
+						return false;
+					string error;
+					if (!parser.TryParseDiagnostic(data, out error)) return false;
+					verified++;
+				}
+				catch (Exception) { return false; }
+			}
+			Logger.n($"Agile.NET V52 key inference: verified {verified} complete method structures");
+			return verified > 0;
 		}
 
 		// Mirror the structural checks in MethodBodyParser without changing its behavior.
