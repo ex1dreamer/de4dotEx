@@ -598,8 +598,7 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 					outside++;
 			}
 			Logger.n($"Agile.NET V52 index: present={present}, absent={methodInfos.Count - present}, outside declared region={outside}");
-			if (csHeader is CsHeader5 && sigType == SigType.Normal && codeHeader.methodDefElemSize == methodDefTable.RowSize)
-{
+			if (csHeader is CsHeader5 && sigType == SigType.Normal && codeHeader.methodDefElemSize == methodDefTable.RowSize) {
 				DiagnoseV52Methods(methodInfos);
 				DiagnoseV52HeaderMasks(methodInfos);
 			}
