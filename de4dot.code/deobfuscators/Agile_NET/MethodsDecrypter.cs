@@ -601,6 +601,7 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 			if (csHeader is CsHeader5 && sigType == SigType.Normal && codeHeader.methodDefElemSize == methodDefTable.RowSize) {
 				DiagnoseV52Methods(methodInfos);
 				DiagnoseV52HeaderMasks(methodInfos);
+				DiagnoseV52XorVariants(methodInfos);
 			}
 			csHeader.PatchMethodTable(methodDefTable, methodInfos);
 
@@ -712,6 +713,57 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 			LogTopMasks("transformed flags", transformedFlagMasks);
 			LogTopMasks("raw local sig", rawSigMasks);
 			LogTopMasks("transformed local sig", transformedSigMasks);
+		}
+
+		// Diagnostic only: compare raw, each single-key XOR, and legacy double XOR.
+		void DiagnoseV52XorVariants(IList<MethodInfo> methodInfos) {
+			const int maxSamples = 512;
+			string[] names = { "raw", "key0", "key7", "both" };
+			int[] structural = new int[4], parsed = new int[4], flagMatches = new int[4], sigMatches = new int[4];
+			int[] attempted = new int[4];
+			int errors = 0, logged = 0;
+			var indices = new List<int>();
+			for (int i = 0; i < methodInfos.Count; i++)
+				if (methodInfos[i].codeOffs != 0 && methodInfos[i].flags != 0 &&
+					methodInfos[i].codeSize >= 12 && (ulong)methodInfos[i].codeOffs + methodInfos[i].codeSize <= codeHeader.totalCodeSize)
+					indices.Add(i);
+			var parser = new Decrypter5(peImage, codeHeader, 0x30);
+			int count = Math.Min(maxSamples, indices.Count);
+			for (int n = 0; n < count; n++) {
+				int index = indices[(int)((long)n * indices.Count / count)];
+				MethodInfo info = methodInfos[index];
+				try {
+					uint offset = GetCodeHeaderOffset(peImage) + info.codeOffs;
+					byte[] raw = peImage.OffsetReadBytes(offset, (int)info.codeSize);
+					for (int variant = 0; variant < 4; variant++) {
+						byte[] data = (byte[])raw.Clone();
+						for (int j = 0; j < data.Length; j++) {
+							int keyIndex = (int)((info.codeOffs - 0x30u + (uint)j) % 16);
+							if ((variant & 1) != 0) data[j] ^= codeHeader.decryptionKey[keyIndex];
+							if ((variant & 2) != 0) data[j] ^= codeHeader.decryptionKey[(keyIndex + 7) % 16];
+						}
+						attempted[variant]++;
+						uint size, sig;
+						ushort flags;
+						string reason = ExplainMethodBodyHeader(data, out size, out sig, out flags);
+						if (reason == "fat-structure-ok" || reason == "fat-extra-sections") structural[variant]++;
+						if (flags == (ushort)info.flags) flagMatches[variant]++;
+						if (sig == info.localVarSigTok && (data[0] & 7) == 3 && data.Length >= 12) sigMatches[variant]++;
+						string parseError;
+						if (parser.TryParseDiagnostic(data, out parseError)) parsed[variant]++;
+						if (logged < 16 && variant != 0 && flags == (ushort)info.flags) {
+							logged++;
+							Logger.n($"Agile.NET V52 XOR diagnostic: RID {index + 1}, variant={names[variant]}, flags=0x{flags:X4}, expectedFlags=0x{info.flags:X4}, sig=0x{sig:X8}, expectedSig=0x{info.localVarSigTok:X8}, declaredSize={size}, recordSize={info.codeSize}, reason={reason}");
+						}
+					}
+				}
+				catch (Exception ex) {
+					errors++;
+					if (errors <= 4) Logger.n($"Agile.NET V52 XOR diagnostic: RID {index + 1}, error={ex.GetType().Name}");
+				}
+			}
+			for (int variant = 0; variant < 4; variant++)
+				Logger.n($"Agile.NET V52 XOR diagnostic: variant={names[variant]}, attempted={attempted[variant]}, fatStructure={structural[variant]}, flagMatches={flagMatches[variant]}, sigMatches={sigMatches[variant]}, parseOK={parsed[variant]}, errors={errors}");
 		}
 
 		static void LogTopMasks<T>(string name, Dictionary<T, int> counts) {
