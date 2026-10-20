@@ -599,7 +599,10 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 			}
 			Logger.n($"Agile.NET V52 index: present={present}, absent={methodInfos.Count - present}, outside declared region={outside}");
 			if (csHeader is CsHeader5 && sigType == SigType.Normal && codeHeader.methodDefElemSize == methodDefTable.RowSize)
+{
 				DiagnoseV52Methods(methodInfos);
+				DiagnoseV52HeaderMasks(methodInfos);
+			}
 			csHeader.PatchMethodTable(methodDefTable, methodInfos);
 
 			dumpedMethods = new DumpedMethods();
@@ -654,6 +657,70 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 			if (12UL + declaredSize > (ulong)data.Length)
 				return "fat-code-overrun";
 			return (headerFlags & 8) != 0 ? "fat-extra-sections" : "fat-structure-ok";
+		}
+
+		// Compare metadata-derived masks on raw and transformed records; do not modify either.
+		void DiagnoseV52HeaderMasks(IList<MethodInfo> methodInfos) {
+			const int maxSamples = 512;
+			const int maxExamples = 12;
+			var candidates = new List<int>();
+			for (int i = 0; i < methodInfos.Count; i++) {
+				if (methodInfos[i].codeOffs != 0 && methodInfos[i].flags != 0 &&
+					methodInfos[i].codeSize >= 12 && (ulong)methodInfos[i].codeOffs + methodInfos[i].codeSize <= codeHeader.totalCodeSize)
+					candidates.Add(i);
+			}
+			if (candidates.Count == 0)
+				return;
+			var transformedFlagMasks = new Dictionary<ushort, int>();
+			var transformedSigMasks = new Dictionary<uint, int>();
+			var rawFlagMasks = new Dictionary<ushort, int>();
+			var rawSigMasks = new Dictionary<uint, int>();
+			int sampled = Math.Min(maxSamples, candidates.Count);
+			int errors = 0;
+			int examples = 0;
+			uint endOfMetadata = GetCodeHeaderOffset(peImage);
+			var diagnosticDecrypter = new Decrypter5(peImage, codeHeader, 0x30);
+			for (int i = 0; i < sampled; i++) {
+				int index = candidates[(int)((long)i * candidates.Count / sampled)];
+				MethodInfo info = methodInfos[index];
+				try {
+					uint offset;
+					byte[] decoded = diagnosticDecrypter.GetDecryptedBytes(info, out offset);
+					byte[] raw = peImage.OffsetReadBytes(offset, 12);
+					ushort expectedFlags = (ushort)info.flags;
+					ushort rawFlagsMask = (ushort)(BitConverter.ToUInt16(raw, 0) ^ expectedFlags);
+					ushort decodedFlagsMask = (ushort)(BitConverter.ToUInt16(decoded, 0) ^ expectedFlags);
+					uint rawSigMask = BitConverter.ToUInt32(raw, 8) ^ info.localVarSigTok;
+					uint decodedSigMask = BitConverter.ToUInt32(decoded, 8) ^ info.localVarSigTok;
+					if (!rawFlagMasks.ContainsKey(rawFlagsMask)) rawFlagMasks[rawFlagsMask] = 0;
+					rawFlagMasks[rawFlagsMask]++;
+					if (!transformedFlagMasks.ContainsKey(decodedFlagsMask)) transformedFlagMasks[decodedFlagsMask] = 0;
+					transformedFlagMasks[decodedFlagsMask]++;
+					if (!rawSigMasks.ContainsKey(rawSigMask)) rawSigMasks[rawSigMask] = 0;
+					rawSigMasks[rawSigMask]++;
+					if (!transformedSigMasks.ContainsKey(decodedSigMask)) transformedSigMasks[decodedSigMask] = 0;
+					transformedSigMasks[decodedSigMask]++;
+					if (examples++ < maxExamples)
+						Logger.n($"Agile.NET V52 mask diagnostic: RID {index + 1}, size={info.codeSize}, expectedFlags=0x{expectedFlags:X4}, indexSig=0x{info.localVarSigTok:X8}, raw={BitConverter.ToString(raw)}, transformed={BitConverter.ToString(decoded, 0, 12)}, rawFlagMask=0x{rawFlagsMask:X4}, transformedFlagMask=0x{decodedFlagsMask:X4}, rawSigMask=0x{rawSigMask:X8}, transformedSigMask=0x{decodedSigMask:X8}");
+				}
+				catch (Exception ex) {
+					errors++;
+					if (errors <= 4)
+						Logger.n($"Agile.NET V52 mask diagnostic: RID {index + 1}, error={ex.GetType().Name}");
+				}
+			}
+			Logger.n($"Agile.NET V52 mask diagnostic: sampled={sampled}, errors={errors}");
+			LogTopMasks("raw flags", rawFlagMasks);
+			LogTopMasks("transformed flags", transformedFlagMasks);
+			LogTopMasks("raw local sig", rawSigMasks);
+			LogTopMasks("transformed local sig", transformedSigMasks);
+		}
+
+		static void LogTopMasks<T>(string name, Dictionary<T, int> counts) {
+			var entries = new List<KeyValuePair<T, int>>(counts);
+			entries.Sort((a, b) => b.Value.CompareTo(a.Value));
+			for (int i = 0; i < Math.Min(6, entries.Count); i++)
+				Logger.n($"Agile.NET V52 mask diagnostic: {name} mask={entries[i].Key}, count={entries[i].Value}");
 		}
 
 		// Diagnostic only: does not modify the method table, dump methods, or fallback behavior.
