@@ -555,8 +555,16 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 				var dm = new DumpedMethod();
 				peImage.ReadMethodTableRowTo(dm, rid);
 
-				var mbHeader = decrypter.Decrypt(methodInfo, out dm.code, out dm.extraSections);
-				peImage.UpdateMethodHeaderInfo(dm, mbHeader);
+				try {
+					var mbHeader = decrypter.Decrypt(methodInfo, out dm.code, out dm.extraSections);
+					peImage.UpdateMethodHeaderInfo(dm, mbHeader);
+				}
+				catch (Exception ex) {
+					Logger.n($"Agile.NET static decryption: failed at method RID {rid} (token 0x{(0x06000000 + rid):X8}, decrypter {decrypter.GetType().Name})");
+					Logger.n($"Agile.NET static decryption: codeOffs=0x{methodInfo.codeOffs:X8}, codeSize={methodInfo.codeSize}, flags=0x{methodInfo.flags:X8}, localVarSigTok=0x{methodInfo.localVarSigTok:X8}");
+					Logger.n($"Agile.NET static decryption: {ex.GetType().FullName}: {ex.Message}");
+					throw;
+				}
 
 				dumpedMethods.Add(dm);
 			}
