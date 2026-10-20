@@ -602,6 +602,7 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 				DiagnoseV52Methods(methodInfos);
 				DiagnoseV52HeaderMasks(methodInfos);
 				DiagnoseV52XorVariants(methodInfos);
+				DiagnoseCandidateV52Key(methodInfos);
 			}
 			csHeader.PatchMethodTable(methodDefTable, methodInfos);
 
@@ -764,6 +765,58 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 			}
 			for (int variant = 0; variant < 4; variant++)
 				Logger.n($"Agile.NET V52 XOR diagnostic: variant={names[variant]}, attempted={attempted[variant]}, fatStructure={structural[variant]}, flagMatches={flagMatches[variant]}, sigMatches={sigMatches[variant]}, parseOK={parsed[variant]}, errors={errors}");
+		}
+
+		// Candidate derived from known V52 flags and local signature tokens, not used for production decryption.
+		static readonly byte[] candidateV52XorKey = {
+			0xB4, 0xBE, 0x32, 0x8D, 0x00, 0x81, 0xE3, 0x4D,
+			0xC4, 0x59, 0x4A, 0x9E, 0xBC, 0xF7, 0x7C, 0xE4
+		};
+
+		void DiagnoseCandidateV52Key(IList<MethodInfo> methodInfos) {
+			const int maxFailureExamples = 12;
+			int present = 0, parsed = 0, tiny = 0, fat = 0, invalid = 0;
+			int fatFlagsMatch = 0, fatSigMatch = 0, failed = 0, errors = 0;
+			var reasons = new SortedDictionary<string, int>();
+			var parser = new Decrypter5(peImage, codeHeader, 0x30);
+			uint bodyBase = GetCodeHeaderOffset(peImage);
+			for (int index = 0; index < methodInfos.Count; index++) {
+				MethodInfo info = methodInfos[index];
+				if (info.codeOffs == 0) continue;
+				present++;
+				try {
+					if (info.codeSize == 0 || info.codeSize > int.MaxValue ||
+						(ulong)info.codeOffs + info.codeSize > codeHeader.totalCodeSize)
+						throw new InvalidDataException("Invalid record bounds");
+					byte[] data = peImage.OffsetReadBytes(bodyBase + info.codeOffs, (int)info.codeSize);
+					for (int j = 0; j < data.Length; j++)
+						data[j] ^= candidateV52XorKey[(int)((info.codeOffs + (uint)j) & 15)];
+					uint declaredSize, sig;
+					ushort flags;
+					string reason = ExplainMethodBodyHeader(data, out declaredSize, out sig, out flags);
+					if (!reasons.ContainsKey(reason)) reasons[reason] = 0;
+					reasons[reason]++;
+					if (reason == "tiny-structure-ok") tiny++;
+					else if (reason == "fat-structure-ok" || reason == "fat-extra-sections") fat++;
+					else invalid++;
+					if ((data[0] & 7) == 3 && data.Length >= 12) {
+						if (flags == (ushort)info.flags) fatFlagsMatch++;
+						if (sig == info.localVarSigTok) fatSigMatch++;
+					}
+					string error;
+					if (parser.TryParseDiagnostic(data, out error)) parsed++;
+					else if (failed++ < maxFailureExamples)
+						Logger.n($"Agile.NET V52 candidate diagnostic: RID {index + 1}, offset=0x{info.codeOffs:X8}, recordSize={info.codeSize}, first=0x{data[0]:X2}, reason={reason}, parse={error}, flags=0x{flags:X4}, indexFlags=0x{info.flags:X8}, sig=0x{sig:X8}, indexSig=0x{info.localVarSigTok:X8}, declaredSize={declaredSize}");
+				}
+				catch (Exception ex) {
+					errors++;
+					if (errors <= maxFailureExamples)
+						Logger.n($"Agile.NET V52 candidate diagnostic: RID {index + 1}, readError={ex.GetType().Name}");
+				}
+			}
+			Logger.n($"Agile.NET V52 candidate diagnostic: present={present}, parseOK={parsed}, tinyStructureOK={tiny}, fatStructureOK={fat}, invalidStructure={invalid}, fatFlagMatches={fatFlagsMatch}, fatSigMatches={fatSigMatch}, readErrors={errors}");
+			foreach (var reason in reasons)
+				Logger.n($"Agile.NET V52 candidate diagnostic: structure={reason.Key}, count={reason.Value}");
 		}
 
 		static void LogTopMasks<T>(string name, Dictionary<T, int> counts) {
