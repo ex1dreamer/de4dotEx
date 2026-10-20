@@ -159,14 +159,28 @@ namespace de4dot.code.deobfuscators.Agile_NET {
 				: base(peImage, codeHeader) => this.codeHeaderSize = codeHeaderSize;
 
 			public override MethodBodyHeader Decrypt(MethodInfo methodInfo, out byte[] code, out byte[] extraSections) {
-				byte[] data = peImage.OffsetReadBytes(endOfMetadata + methodInfo.codeOffs, (int)methodInfo.codeSize);
+				uint fileOffset = endOfMetadata + methodInfo.codeOffs;
+				byte[] data = peImage.OffsetReadBytes(fileOffset, (int)methodInfo.codeSize);
+				byte[] prefixBefore = new byte[Math.Min(data.Length, 16)];
+				Array.Copy(data, prefixBefore, prefixBefore.Length);
 				for (int i = 0; i < data.Length; i++) {
 					byte b = data[i];
 					b ^= codeHeader.decryptionKey[(methodInfo.codeOffs - codeHeaderSize + i) % 16];
 					b ^= codeHeader.decryptionKey[(methodInfo.codeOffs - codeHeaderSize + i + 7) % 16];
 					data[i] = b;
 				}
-				return GetCodeBytes(data, out code, out extraSections);
+				try {
+					return GetCodeBytes(data, out code, out extraSections);
+				}
+				catch (InvalidMethodBody) {
+					int prefixLength = Math.Min(data.Length, 16);
+					byte header = data.Length == 0 ? (byte)0 : data[0];
+					string headerKind = data.Length == 0 ? "empty" : (header & 3) == 2 ? "tiny" : (header & 7) == 3 ? "fat" : "invalid";
+					Logger.n($"Agile.NET Decrypter5: absolute file offset=0x{fileOffset:X8}, encrypted length={data.Length}, header kind={headerKind}, first byte=0x{header:X2}");
+					Logger.n($"Agile.NET Decrypter5: encrypted prefix ({prefixBefore.Length} bytes): {BitConverter.ToString(prefixBefore)}");
+					Logger.n($"Agile.NET Decrypter5: decrypted prefix ({prefixLength} bytes): {BitConverter.ToString(data, 0, prefixLength)}");
+					throw;
+				}
 			}
 		}
 
